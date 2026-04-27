@@ -2,58 +2,131 @@ package main
 
 import (
 	"log"
+	"os"
+
+	"ai-agent/controllers"
+	"ai-agent/initializers"
+
+	// IMPORTANTE: Importa a documentação gerada dentro de cmd/docs
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/basicauth"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
-	"github.com/gofiber/fiber/v2/middleware/recover"
-
-	"github.com/LesterCerioli/AI-Agent-Go/internal/application/services"
-	"github.com/LesterCerioli/AI-Agent-Go/internal/core/domain"
-	"github.com/LesterCerioli/AI-Agent-Go/internal/infrastructure/ai"
-	"github.com/LesterCerioli/AI-Agent-Go/internal/infrastructure/database"
-	"github.com/LesterCerioli/AI-Agent-Go/internal/presentation/http/controllers"
-	"github.com/LesterCerioli/AI-Agent-Go/internal/presentation/http/routes"
-
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
+	"github.com/gofiber/swagger"
+	"github.com/joho/godotenv"
 )
 
+func initializeRoutes(app *fiber.App, services *initializers.Services) {
+	// Initialize controllers
+	agentController := controllers.NewAgentController(services.AgentService)
+
+	api := app.Group("/api/v1")
+
+	// Agent routes (public - no auth required for now)
+	agent := api.Group("/agent")
+	agent.Post("/generate", agentController.GenerateCode)
+	agent.Get("/context", agentController.GetCurrentContext)
+
+	// Health check
+	api.Get("/health", agentController.HealthCheck)
+}
+
+func configureMiddleware(app *fiber.App) {
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "*",
+		AllowMethods: "GET,POST,PUT,DELETE,OPTIONS",
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization",
+	}))
+
+	app.Use(logger.New(logger.Config{
+		Format: "[${time}] ${status} - ${method} ${path}\n",
+	}))
+}
+
+// @title AI Agent API
+// @version 1.0
+// @description AI Agent with DeepSeek integration for automatic code generation in VS Code
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.email support@aiagent.com
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host localhost:3000
+// @BasePath /api/v1
+// @schemes http https
+
 func main() {
-
-	dsn := "host=localhost user=postgres password=postgres dbname=ai_agent port=5432 sslmode=disable TimeZone=UTC"
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		log.Printf("Failed to connect to database. Starting without DB for demo purposes. Error: %v\n", err)
-	} else {
-
-		err = db.AutoMigrate(
-			&domain.ProjectRequirement{},
-			&domain.ProjectArchitecture{},
-			&domain.GeneratedFile{},
-		)
-		if err != nil {
-			log.Fatalf("Failed to auto migrate database schemas: %v", err)
-		}
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("Warning: .env file not found, using system environment variables")
 	}
 
-	repo := database.NewPostgresRepository(db)
-	aiClient := ai.NewMockAIClient()
+	// Initialize database
+	db := initializers.InitialDB()
 
-	genService := services.NewGenerationService(aiClient, repo)
+	// Run migrations
+	initializers.RunMigrations(db)
 
-	genController := controllers.NewGenerationController(genService)
+	// Initialize services
+	services := initializers.InitServices(db)
 
+	// Create Fiber app
 	app := fiber.New(fiber.Config{
-		AppName: "AI-Driven Code Generation Engine v1.0",
+		AppName: "AI Agent API v1",
 	})
 
-	app.Use(logger.New())
-	app.Use(recover.New())
+	// Configure middleware
+	configureMiddleware(app)
 
-	routes.SetupRoutes(app, genController)
+	// Swagger documentation setup
+	swaggerUser := os.Getenv("SWAGGER_USER")
+	swaggerPass := os.Getenv("SWAGGER_PASSWORD")
 
-	log.Println("Starting AI-Driven Code Generation Engine on port 3000...")
-	if err := app.Listen(":3000"); err != nil {
-		log.Fatalf("Error starting server: %v", err)
+	// Swagger configuration with optional authentication
+	if swaggerUser == "" || swaggerPass == "" {
+		log.Println("⚠️  Warning: SWAGGER_USER and SWAGGER_PASSWORD not set, Swagger will be public")
+		app.Get("/swagger/*", swagger.HandlerDefault)
+		app.Get("/docs", func(c *fiber.Ctx) error {
+			return c.Redirect("/swagger/index.html")
+		})
+	} else {
+		// Swagger with authentication
+		swaggerAuth := basicauth.New(basicauth.Config{
+			Users: map[string]string{
+				swaggerUser: swaggerPass,
+			},
+			Realm: "Swagger Restricted",
+		})
+
+		app.Get("/swagger/*", swaggerAuth, swagger.HandlerDefault)
+		app.Get("/docs", swaggerAuth, func(c *fiber.Ctx) error {
+			return c.Redirect("/swagger/index.html")
+		})
+	}
+
+	// Initialize routes
+	initializeRoutes(app, services)
+
+	// Get port from environment
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
+
+	// Start server
+	log.Printf("🚀 AI Agent Server is running on http://0.0.0.0:%s", port)
+	log.Printf("📚 Swagger UI available at: http://localhost:%s/swagger/index.html", port)
+	log.Printf("🔧 API endpoints available at: http://localhost:%s/api/v1", port)
+	log.Printf("🤖 Agent endpoints:")
+	log.Printf("   POST   /api/v1/agent/generate - Generate code with AI")
+	log.Printf("   GET    /api/v1/agent/context  - Get current VS Code workspace context")
+	log.Printf("   GET    /api/v1/health         - Health check")
+
+	if err := app.Listen(":" + port); err != nil {
+		log.Fatalf("❌ Failed to start server: %v", err)
 	}
 }
