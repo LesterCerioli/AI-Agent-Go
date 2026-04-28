@@ -1,4 +1,3 @@
-// initializers/services.go
 package initializers
 
 import (
@@ -20,13 +19,11 @@ type Services struct {
 func InitServices(db *gorm.DB) *Services {
 	log.Println("Initializing services...")
 
-	// Get sql.DB from gorm
 	sqlDB, err := db.DB()
 	if err != nil {
 		log.Fatalf("Failed to get sql.DB from gorm: %v", err)
 	}
 
-	// 1. Initialize DeepSeek Client
 	deepSeekKey := os.Getenv("DEEPSEEK_KEY")
 	if deepSeekKey == "" {
 		log.Fatal("DEEPSEEK_KEY environment variable is not set")
@@ -43,21 +40,18 @@ func InitServices(db *gorm.DB) *Services {
 	}
 	log.Println("✅ DeepSeekClient initialized")
 
-	// 2. Initialize VSCode Detector
 	vscodeDetector, err := implementations.NewVSCodeDetector()
 	if err != nil {
 		log.Fatalf("Failed to initialize VSCodeDetector: %v", err)
 	}
 	log.Println("✅ VSCodeDetector initialized")
 
-	// 3. Initialize File Generator
 	fileGenerator, err := implementations.NewFileGenerator()
 	if err != nil {
 		log.Fatalf("Failed to initialize FileGenerator: %v", err)
 	}
 	log.Println("✅ FileGenerator initialized")
 
-	// 4. Initialize Agent Service (with all dependencies)
 	agentService, err := implementations.NewAgentService(
 		sqlDB,
 		deepSeekClient,

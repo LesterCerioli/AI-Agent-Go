@@ -1,4 +1,3 @@
-// services/implementations/file_generator.go
 package implementations
 
 import (
@@ -21,9 +20,8 @@ func (g *FileGenerator) ParseAndGenerateFiles(projectPath string, deepseekRespon
 
 	var files map[string]string
 
-	// Try to parse as JSON
 	if err := json.Unmarshal([]byte(deepseekResponse), &files); err != nil {
-		// If not JSON, try to extract code blocks
+
 		files = g.extractCodeBlocks(deepseekResponse)
 	}
 
@@ -34,19 +32,17 @@ func (g *FileGenerator) ParseAndGenerateFiles(projectPath string, deepseekRespon
 	var createdFiles []string
 
 	for filePath, content := range files {
-		// Clean up file path
+
 		cleanPath := strings.TrimPrefix(filePath, "./")
 		cleanPath = strings.TrimPrefix(cleanPath, "/")
 
 		fullPath := filepath.Join(projectPath, cleanPath)
 
-		// Create directory if needed
 		dir := filepath.Dir(fullPath)
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory: %w", err)
 		}
 
-		// Write file
 		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 			return nil, fmt.Errorf("failed to write file: %w", err)
 		}
@@ -68,26 +64,25 @@ func (g *FileGenerator) extractCodeBlocks(response string) map[string]string {
 	inCodeBlock := false
 
 	for _, line := range lines {
-		// Check for file path in markdown code block
+
 		if strings.HasPrefix(line, "```") {
 			if !inCodeBlock {
-				// Start of code block - try to extract file name
+
 				remaining := strings.TrimPrefix(line, "```")
 				remaining = strings.TrimSpace(remaining)
 
-				// Look for filename pattern
 				if strings.Contains(remaining, ".") {
 					currentFile = strings.TrimSpace(remaining)
 					inCodeBlock = true
 					currentContent = []string{}
 				} else {
-					// No filename specified, start code block without filename
+
 					currentFile = fmt.Sprintf("file_%d", len(files)+1)
 					inCodeBlock = true
 					currentContent = []string{}
 				}
 			} else {
-				// End of code block
+
 				if currentFile != "" && len(currentContent) > 0 {
 					files[currentFile] = strings.Join(currentContent, "\n")
 					currentFile = ""

@@ -1,4 +1,3 @@
-// services/implementations/agent_service.go
 package implementations
 
 import (
@@ -52,25 +51,21 @@ func NewAgentService(
 func (s *AgentService) GenerateCode(ctx context.Context, req *models.GenerateCodeRequest) (*models.GenerateCodeResponse, error) {
 	log.Printf("[INFO] Starting code generation for prompt: %s", req.Prompt)
 
-	// Detect current workspace
 	workspacePath, err := s.vscodeDetector.GetCurrentWorkspace()
 	if err != nil {
 		return nil, fmt.Errorf("failed to detect workspace: %w", err)
 	}
 
-	// Use project name or generate one
 	projectName := req.ProjectName
 	if projectName == "" {
 		projectName = fmt.Sprintf("project_%d", time.Now().Unix())
 	}
 
-	// Create project directory
 	projectPath, err := s.fileGenerator.CreateProjectDirectory(workspacePath, projectName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create project directory: %w", err)
 	}
 
-	// Detect language (use provided or detect)
 	language := req.Language
 	if language == "" {
 		language = s.vscodeDetector.DetectProjectLanguage(workspacePath)
@@ -79,24 +74,20 @@ func (s *AgentService) GenerateCode(ctx context.Context, req *models.GenerateCod
 		}
 	}
 
-	// Create project record in database
 	projectID, err := s.createProject(ctx, projectName, req.Description, projectPath, language)
 	if err != nil {
 		log.Printf("[WARN] Failed to create project record: %v", err)
 	}
 
-	// Build context for DeepSeek
 	contextInfo := fmt.Sprintf("Project: %s\nLanguage: %s\nDescription: %s",
 		projectName, language, req.Description)
 
-	// Generate code using DeepSeek
 	deepSeekResponse, err := s.deepSeekClient.GenerateCode(ctx, req.Prompt, contextInfo)
 	if err != nil {
 		s.updateGenerationStatus(ctx, projectID, "failed", err.Error())
 		return nil, fmt.Errorf("DeepSeek generation failed: %w", err)
 	}
 
-	// Parse and generate files
 	filesCreated, err := s.fileGenerator.ParseAndGenerateFiles(projectPath, deepSeekResponse)
 	if err != nil {
 		s.updateGenerationStatus(ctx, projectID, "failed", err.Error())

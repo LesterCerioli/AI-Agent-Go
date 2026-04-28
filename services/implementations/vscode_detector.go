@@ -1,4 +1,3 @@
-// services/implementations/vscode_detector.go
 package implementations
 
 import (
@@ -28,13 +27,11 @@ func NewVSCodeDetector() (*VSCodeDetector, error) {
 func (d *VSCodeDetector) GetCurrentWorkspace() (string, error) {
 	log.Printf("[INFO] Detecting current VS Code workspace")
 
-	// Method 1: Get from current working directory
 	if path, err := d.getCurrentDirectory(); err == nil && path != "" {
 		log.Printf("[INFO] Using current directory: %s", path)
 		return path, nil
 	}
 
-	// Method 2: Try to find from VS Code process (Windows)
 	if runtime.GOOS == "windows" {
 		if path, err := d.getVSCodeWorkspaceWindows(); err == nil && path != "" {
 			log.Printf("[INFO] Detected VS Code workspace: %s", path)
@@ -42,7 +39,6 @@ func (d *VSCodeDetector) GetCurrentWorkspace() (string, error) {
 		}
 	}
 
-	// Method 3: Use home directory as fallback
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
@@ -63,7 +59,6 @@ func (d *VSCodeDetector) getCurrentDirectory() (string, error) {
 		return "", err
 	}
 
-	// Check if current directory contains project indicators
 	indicators := []string{"go.mod", "package.json", ".git", "requirements.txt", "Cargo.toml"}
 	for _, indicator := range indicators {
 		if d.fileExists(filepath.Join(currentDir, indicator)) {
@@ -75,7 +70,7 @@ func (d *VSCodeDetector) getCurrentDirectory() (string, error) {
 }
 
 func (d *VSCodeDetector) getVSCodeWorkspaceWindows() (string, error) {
-	// Get VS Code process
+
 	cmd := exec.Command("powershell", "-Command",
 		"Get-Process -Name Code -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id")
 
@@ -89,7 +84,6 @@ func (d *VSCodeDetector) getVSCodeWorkspaceWindows() (string, error) {
 		return "", fmt.Errorf("VS Code not running")
 	}
 
-	// Get working directory from process
 	cmd = exec.Command("powershell", "-Command",
 		fmt.Sprintf("(Get-Process -Id %s).StartInfo.WorkingDirectory", processID))
 
@@ -119,7 +113,6 @@ func (d *VSCodeDetector) ScanProjectFiles(projectPath string) ([]string, error) 
 			return nil
 		}
 
-		// Skip hidden directories and node_modules
 		if info.IsDir() {
 			name := info.Name()
 			if strings.HasPrefix(name, ".") || name == "node_modules" || name == "vendor" || name == "__pycache__" {
@@ -128,7 +121,6 @@ func (d *VSCodeDetector) ScanProjectFiles(projectPath string) ([]string, error) 
 			return nil
 		}
 
-		// Get relative path
 		relPath, err := filepath.Rel(projectPath, path)
 		if err == nil {
 			files = append(files, relPath)

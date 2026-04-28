@@ -11,12 +11,10 @@ import (
 func RunMigrations(db *gorm.DB) {
 	log.Println("🔄 Starting database migrations...")
 
-	// Enable UUID extension
 	if err := db.Exec(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`).Error; err != nil {
 		log.Printf("⚠️ Warning: Error enabling uuid-ossp extension: %v", err)
 	}
 
-	// Auto migrate models
 	if err := db.AutoMigrate(
 		&models.Project{},
 		&models.Generation{},

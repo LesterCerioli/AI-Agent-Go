@@ -30,7 +30,7 @@ func NewAgentController(agentService *implementations.AgentService) *AgentContro
 // @Success 200 {object} models.GenerateCodeResponse
 // @Failure 400 {object} map[string]string
 // @Failure 500 {object} map[string]string
-// @Router /api/v1/agent/generate [post]
+// @Router /agent/generate [post]
 func (c *AgentController) GenerateCode(ctx *fiber.Ctx) error {
 	var req models.GenerateCodeRequest
 	if err := ctx.BodyParser(&req); err != nil {
@@ -73,7 +73,7 @@ func (c *AgentController) GenerateCode(ctx *fiber.Ctx) error {
 // @Produce json
 // @Success 200 {object} models.GetCurrentContextResponse
 // @Failure 500 {object} map[string]string
-// @Router /api/v1/agent/context [get]
+// @Router /agent/context [get]
 func (c *AgentController) GetCurrentContext(ctx *fiber.Ctx) error {
 	response, err := c.agentService.GetCurrentContext(ctx.Context())
 	if err != nil {

@@ -7,7 +7,7 @@ import (
 	"ai-agent/controllers"
 	"ai-agent/initializers"
 
-	// IMPORTANTE: Importa a documentação gerada dentro de cmd/docs
+	_ "ai-agent/cmd/docs"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/basicauth"
@@ -18,7 +18,7 @@ import (
 )
 
 func initializeRoutes(app *fiber.App, services *initializers.Services) {
-	// Initialize controllers
+
 	agentController := controllers.NewAgentController(services.AgentService)
 
 	api := app.Group("/api/v1")
@@ -114,7 +114,7 @@ func main() {
 	// Get port from environment
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "3000"
+		port = "9000"
 	}
 
 	// Start server
