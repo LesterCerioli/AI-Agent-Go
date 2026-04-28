@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
-	"time"
 
 	"ai-agent/models"
 
@@ -16,22 +15,22 @@ import (
 
 type AgentService struct {
 	db             *sql.DB
-	deepSeekClient *DeepSeekClient
+	ollamaClient   *OllamaClient
 	vscodeDetector *VSCodeDetector
 	fileGenerator  *FileGenerator
 }
 
 func NewAgentService(
 	db *sql.DB,
-	deepSeekClient *DeepSeekClient,
+	ollamaClient *OllamaClient,
 	vscodeDetector *VSCodeDetector,
 	fileGenerator *FileGenerator,
 ) (*AgentService, error) {
 	if db == nil {
 		return nil, fmt.Errorf("database connection is required")
 	}
-	if deepSeekClient == nil {
-		return nil, fmt.Errorf("deepseek client is required")
+	if ollamaClient == nil {
+		return nil, fmt.Errorf("ollama client is required")
 	}
 	if vscodeDetector == nil {
 		return nil, fmt.Errorf("vscode detector is required")
@@ -42,7 +41,7 @@ func NewAgentService(
 
 	return &AgentService{
 		db:             db,
-		deepSeekClient: deepSeekClient,
+		ollamaClient:   ollamaClient,
 		vscodeDetector: vscodeDetector,
 		fileGenerator:  fileGenerator,
 	}, nil
@@ -50,25 +49,27 @@ func NewAgentService(
 
 func (s *AgentService) GenerateCode(ctx context.Context, req *models.GenerateCodeRequest) (*models.GenerateCodeResponse, error) {
 	log.Printf("[INFO] Starting code generation for prompt: %s", req.Prompt)
+	log.Printf("[INFO] Project path: %s", req.ProjectPath)
+	log.Printf("[INFO] Requirements: %s", req.Requirements)
 
-	workspacePath, err := s.vscodeDetector.GetCurrentWorkspace()
-	if err != nil {
-		return nil, fmt.Errorf("failed to detect workspace: %w", err)
+	if req.ProjectPath == "" {
+		return nil, fmt.Errorf("project_path is required")
+	}
+
+	projectPath := req.ProjectPath
+
+	if err := s.fileGenerator.EnsureProjectDirectory(projectPath); err != nil {
+		return nil, fmt.Errorf("failed to create or access project directory: %w", err)
 	}
 
 	projectName := req.ProjectName
 	if projectName == "" {
-		projectName = fmt.Sprintf("project_%d", time.Now().Unix())
-	}
-
-	projectPath, err := s.fileGenerator.CreateProjectDirectory(workspacePath, projectName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create project directory: %w", err)
+		projectName = filepath.Base(projectPath)
 	}
 
 	language := req.Language
 	if language == "" {
-		language = s.vscodeDetector.DetectProjectLanguage(workspacePath)
+		language = s.vscodeDetector.DetectProjectLanguage(projectPath)
 		if language == "unknown" {
 			language = "go" // default
 		}
@@ -79,24 +80,29 @@ func (s *AgentService) GenerateCode(ctx context.Context, req *models.GenerateCod
 		log.Printf("[WARN] Failed to create project record: %v", err)
 	}
 
-	contextInfo := fmt.Sprintf("Project: %s\nLanguage: %s\nDescription: %s",
-		projectName, language, req.Description)
+	contextInfo := fmt.Sprintf(`Project Name: %s
+Language: %s
+User Prompt: %s
+Technical Requirements: %s
 
-	deepSeekResponse, err := s.deepSeekClient.GenerateCode(ctx, req.Prompt, contextInfo)
+Important: Generate production-ready code following best practices for %s.
+Return ONLY valid JSON with file paths as keys and file contents as values.`,
+		projectName, language, req.Prompt, req.Requirements, language)
+
+	ollamaResponse, err := s.ollamaClient.GenerateCode(ctx, req.Prompt, contextInfo)
 	if err != nil {
 		s.updateGenerationStatus(ctx, projectID, "failed", err.Error())
-		return nil, fmt.Errorf("DeepSeek generation failed: %w", err)
+		return nil, fmt.Errorf("Ollama generation failed: %w", err)
 	}
 
-	filesCreated, err := s.fileGenerator.ParseAndGenerateFiles(projectPath, deepSeekResponse)
+	filesCreated, err := s.fileGenerator.ParseAndGenerateFiles(projectPath, ollamaResponse)
 	if err != nil {
 		s.updateGenerationStatus(ctx, projectID, "failed", err.Error())
 		return nil, fmt.Errorf("file generation failed: %w", err)
 	}
 
-	// Save generation record
 	filesJSON, _ := json.Marshal(filesCreated)
-	s.saveGeneration(ctx, projectID, req.Prompt, deepSeekResponse, string(filesJSON), "completed")
+	s.saveGeneration(ctx, projectID, req.Prompt, req.Requirements, ollamaResponse, string(filesJSON), "completed")
 
 	log.Printf("[INFO] Code generation completed. Created %d files in %s", len(filesCreated), projectPath)
 
@@ -142,15 +148,18 @@ func (s *AgentService) createProject(ctx context.Context, name, description, pat
 	return id, err
 }
 
-func (s *AgentService) saveGeneration(ctx context.Context, projectID uuid.UUID, prompt, deepseekResponse, filesCreated, status string) {
+func (s *AgentService) saveGeneration(ctx context.Context, projectID uuid.UUID, prompt, requirements, ollamaResponse, filesCreated, status string) {
 	query := `
-		INSERT INTO generations (project_id, prompt, deepseek_response, files_created, status, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+		INSERT INTO generations (project_id, prompt, requirements, ollama_response, files_created, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
 	`
-	s.db.ExecContext(ctx, query, projectID, prompt, deepseekResponse, filesCreated, status)
+	s.db.ExecContext(ctx, query, projectID, prompt, requirements, ollamaResponse, filesCreated, status)
 }
 
 func (s *AgentService) updateGenerationStatus(ctx context.Context, projectID uuid.UUID, status, errorMessage string) {
+	if projectID == uuid.Nil {
+		return
+	}
 	query := `
 		UPDATE generations 
 		SET status = $1, error_message = $2, updated_at = NOW()

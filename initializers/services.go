@@ -1,6 +1,7 @@
 package initializers
 
 import (
+	"context"
 	"log"
 	"os"
 
@@ -11,9 +12,9 @@ import (
 
 type Services struct {
 	AgentService   *implementations.AgentService
-	DeepSeekClient *implementations.DeepSeekClient
 	VSCodeDetector *implementations.VSCodeDetector
 	FileGenerator  *implementations.FileGenerator
+	OllamaClient   *implementations.OllamaClient
 }
 
 func InitServices(db *gorm.DB) *Services {
@@ -24,21 +25,24 @@ func InitServices(db *gorm.DB) *Services {
 		log.Fatalf("Failed to get sql.DB from gorm: %v", err)
 	}
 
-	deepSeekKey := os.Getenv("DEEPSEEK_KEY")
-	if deepSeekKey == "" {
-		log.Fatal("DEEPSEEK_KEY environment variable is not set")
-	}
-
-	deepSeekURL := os.Getenv("DEEPSEEK_URL")
-	if deepSeekURL == "" {
-		deepSeekURL = "https://api.deepseek.com/v1"
-	}
-
-	deepSeekClient, err := implementations.NewDeepSeekClient(deepSeekKey, deepSeekURL)
+	
+	ollamaClient, err := implementations.NewOllamaClient()
 	if err != nil {
-		log.Fatalf("Failed to initialize DeepSeekClient: %v", err)
+		log.Fatalf("Failed to initialize OllamaClient: %v", err)
 	}
-	log.Println("✅ DeepSeekClient initialized")
+
+	ctx := context.Background()
+	if err := ollamaClient.CheckHealth(ctx); err != nil {
+		log.Printf("⚠️  Ollama health check failed: %v", err)
+		log.Printf("   Make sure Ollama is running: docker-compose up -d")
+		log.Printf("   And model is pulled: docker exec ollama ollama pull %s", os.Getenv("OLLAMA_MODEL"))
+		log.Fatal("❌ Ollama is not healthy. Cannot continue without Ollama.")
+	} else {
+		log.Println("✅ OllamaClient initialized and healthy")
+		if models, err := ollamaClient.ListModels(ctx); err == nil {
+			log.Printf("📦 Available Ollama models: %v", models)
+		}
+	}
 
 	vscodeDetector, err := implementations.NewVSCodeDetector()
 	if err != nil {
@@ -51,10 +55,10 @@ func InitServices(db *gorm.DB) *Services {
 		log.Fatalf("Failed to initialize FileGenerator: %v", err)
 	}
 	log.Println("✅ FileGenerator initialized")
-
+	
 	agentService, err := implementations.NewAgentService(
 		sqlDB,
-		deepSeekClient,
+		ollamaClient, // Adicionado OllamaClient como segundo argumento
 		vscodeDetector,
 		fileGenerator,
 	)
@@ -67,8 +71,8 @@ func InitServices(db *gorm.DB) *Services {
 
 	return &Services{
 		AgentService:   agentService,
-		DeepSeekClient: deepSeekClient,
 		VSCodeDetector: vscodeDetector,
 		FileGenerator:  fileGenerator,
+		OllamaClient:   ollamaClient,
 	}
 }
